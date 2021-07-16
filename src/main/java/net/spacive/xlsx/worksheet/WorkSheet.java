@@ -15,16 +15,6 @@ import java.util.Locale;
 
 public class WorkSheet {
 
-    private static class OpenedRow {
-        private final Row row;
-        private final Node node;
-
-        public OpenedRow(Row row, Node node) {
-            this.row = row;
-            this.node = node;
-        }
-    }
-
     private static class Link {
         private final int rowId;
         private final int columnId;
@@ -37,7 +27,7 @@ public class WorkSheet {
         }
     }
 
-    private final String entryName;
+    private final IStringConsumer consumer;
     private final XlsxContext xlsxContext;
     private final WorkSheetParams workSheetParams;
 
@@ -53,23 +43,23 @@ public class WorkSheet {
     private Node rootElement;
     private Node sheetData;
 
-    private OpenedRow openedRow = null;
+    private boolean isOpen = false;
 
-    public WorkSheet(String entryName,
+    private Row openedRow = null;
+
+    public WorkSheet(IStringConsumer consumer,
                      XlsxContext xlsxContext,
                      int sheetId,
                      WorkSheetParams workSheetParams) {
 
-        this.entryName = entryName;
+        this.consumer = consumer;
         this.xlsxContext = xlsxContext;
         this.sheetId = sheetId;
         this.workSheetParams = workSheetParams;
     }
 
-    public void open() throws IOException {
-        IStringConsumer contentWriter = xlsxContext.openEntry(entryName);
-
-        document = new XmlDocument(contentWriter)
+    private void open() {
+        document = new XmlDocument(consumer)
                 .setDeclaration("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
                 .open();
 
@@ -90,7 +80,15 @@ public class WorkSheet {
                 .open();
     }
 
+    private void openIfNotOpened() {
+        if (!this.isOpen) {
+            open();
+            this.isOpen = true;
+        }
+    }
+
     public void close() throws IOException {
+        openIfNotOpened();
         sheetData.close();
 
         processMergedCells();
@@ -103,72 +101,49 @@ public class WorkSheet {
         processLinkRels();
     }
 
-    public void openRow(Row row) {
-        if (openedRow != null) {
+    public Row openRow(RowParams rowParams) {
+        openIfNotOpened();
+
+        if (openedRow != null && !openedRow.isClosed()) {
             throw new RuntimeException("previous row must be closed before new row can be added");
         }
 
         XmlElement rowElement = new XmlElement(sheetData, "row")
-                .addAttribute(new XmlAttribute("r", String.valueOf(row.getRowIndex())));
+                .addAttribute(new XmlAttribute("r", String.valueOf(rowParams.getRowNumber())));
 
-        if (row.getSpan() != Row.NO_SPAN) {
+        if (rowParams.getSpan() != RowParams.NO_SPAN) {
             rowElement.addAttribute(new XmlAttribute("spans", String.format(Locale.US, "%d:%d",
-                    row.getSpan().getStart(),
-                    row.getSpan().getEnd())));
+                    rowParams.getSpan().getStart(),
+                    rowParams.getSpan().getEnd())));
         }
 
-        if (row.getHeight() != Row.DEFAULT_HEIGHT) {
-            rowElement.addAttribute(new XmlAttribute("ht", String.valueOf(row.getHeight())));
+        if (rowParams.getHeight() != RowParams.DEFAULT_HEIGHT) {
+            rowElement.addAttribute(new XmlAttribute("ht", String.valueOf(rowParams.getHeight())));
         }
 
-        if (row.isThickBot()) {
+        if (rowParams.isThickBot()) {
             rowElement.addAttribute(new XmlAttribute("thickBot", "1"));
         }
 
-        if (row.isCustomHeight()) {
+        if (rowParams.isCustomHeight()) {
             rowElement.addAttribute(new XmlAttribute("customHeight", "1"));
         }
 
-        if (row.getDyDescent() != Row.NO_DY_DESCENT) {
-            rowElement.addAttribute(new XmlAttribute("x14ac:dyDescent", String.valueOf(row.getDyDescent())));
+        if (rowParams.getDyDescent() != RowParams.NO_DY_DESCENT) {
+            rowElement.addAttribute(new XmlAttribute("x14ac:dyDescent", String.valueOf(rowParams.getDyDescent())));
         }
 
-        openedRow = new OpenedRow(row, rowElement.open());
+        openedRow = new Row(rowParams, rowElement.open(), this);
+        return openedRow;
     }
 
-    public void closeRow() {
-        if (openedRow == null) {
-            throw new RuntimeException("row cannot be closed because no row is opened");
-        }
-
-        openedRow.node.close();
-        openedRow = null;
+    void registerMergedCells(CellRange cellRange) {
+        mergedCellsList.add(cellRange);
     }
 
-    public void putCell(int column, Cell<?> cell) {
-        if (openedRow == null) {
-            throw new RuntimeException("cannot insert cell because no row is opened");
-        }
-        if (column <= 0) {
-            throw new RuntimeException("column must be > 0 but provided value was " + column);
-        }
-
-        int row = openedRow.row.getRowIndex();
-
-        cell.setCoordinates(row, column);
-        cell.renderInto(openedRow.node);
-
-        if (cell.getHorizontalSpan() > 0 || cell.getVerticalSpan() > 0) {
-            int endRow = row + cell.getVerticalSpan();
-            int endColumn = column + cell.getHorizontalSpan();
-
-            mergedCellsList.add(new CellRange(row, endRow, column, endColumn));
-        }
-
-        if (!cell.getHyperLink().isEmpty()) {
-            long relationId = linksRelations.addRelationship(Relationships.hyperlink(cell.getHyperLink()));
-            links.add(new Link(row, column, relationId));
-        }
+    void registerHyperlink(String hyperLink, int row, int column) {
+        long relationId = linksRelations.addRelationship(Relationships.hyperlink(hyperLink));
+        links.add(new WorkSheet.Link(row, column, relationId));
     }
 
     private String getLinksEntryName() {

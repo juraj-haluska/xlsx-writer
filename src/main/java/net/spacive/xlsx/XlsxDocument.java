@@ -105,17 +105,19 @@ public class XlsxDocument {
         }
     }
 
-    public WorkSheet createWorksheet(String sheetName) {
-        return createWorksheet(sheetName, WorkSheetParams.EMPTY);
+    public WorkSheet openWorksheet(String sheetName) throws IOException {
+        return openWorksheet(sheetName, WorkSheetParams.EMPTY);
     }
 
-    public WorkSheet createWorksheet(String sheetName, WorkSheetParams workSheetParams) {
+    public WorkSheet openWorksheet(String sheetName, WorkSheetParams workSheetParams) throws IOException {
         int worksheetId = ++worksheetIdCounter;
         long relId = xlsxContext.getWorkbookRelations().addRelationship(Relationships.worksheet(worksheetId));
         IContentFile contentFile = ContentFileFactory.worksheet(worksheetId);
         xlsxContext.registerContentFile(contentFile);
         sheets.add(new Sheet(sheetName, worksheetId, relId));
 
-        return new WorkSheet(contentFile.getEntryName(), xlsxContext, worksheetId, workSheetParams);
+        IStringConsumer consumer = xlsxContext.openEntry(contentFile.getEntryName());
+
+        return new WorkSheet(consumer, xlsxContext, worksheetId, workSheetParams);
     }
 }

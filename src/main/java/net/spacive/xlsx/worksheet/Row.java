@@ -1,107 +1,51 @@
 package net.spacive.xlsx.worksheet;
 
+import net.spacive.xml_core.Node;
+
 public class Row {
 
-    public static final Range NO_SPAN = new Range(0, 0);
-    public static final double DEFAULT_HEIGHT = 0;
-    public static final double NO_DY_DESCENT = 0;
+    private final RowParams rowParams;
+    private final Node node;
+    private final WorkSheet workSheet;
 
-    public static class Range {
-        private final int start;
-        private final int end;
+    private boolean isClosed = false;
 
-        public Range(int start, int end) {
-            this.start = start;
-            this.end = end;
-        }
-
-        public int getStart() {
-            return start;
-        }
-
-        public int getEnd() {
-            return end;
-        }
+    public Row(RowParams rowParams, Node node, WorkSheet workSheet) {
+        this.rowParams = rowParams;
+        this.node = node;
+        this.workSheet = workSheet;
     }
 
-    public static class Builder {
-        private final Row instance;
-
-        public Builder(int rowIndex) {
-            this.instance = new Row(rowIndex);
+    public Row putCell(int columnNumber, Cell<?> cell) {
+        if (columnNumber <= 0) {
+            throw new RuntimeException("column number must be > 0 but provided value was " + columnNumber);
         }
 
-        public Builder setSpan(int start, int end) {
-            this.instance.span = new Range(start, end);
-            return this;
+        int row = rowParams.getRowNumber();
+
+        cell.setCoordinates(row, columnNumber);
+        cell.renderInto(node);
+
+        if (cell.getHorizontalSpan() > 0 || cell.getVerticalSpan() > 0) {
+            int endRow = row + cell.getVerticalSpan();
+            int endColumn = columnNumber + cell.getHorizontalSpan();
+
+            workSheet.registerMergedCells(new CellRange(row, endRow, columnNumber, endColumn));
         }
 
-        public Builder setHeight(double ht) {
-            this.instance.height = ht;
-            return this;
+        if (!cell.getHyperLink().isEmpty()) {
+            workSheet.registerHyperlink(cell.getHyperLink(), row, columnNumber);
         }
 
-        public Builder setThickBot() {
-            this.instance.isThickBot = true;
-            return this;
-        }
-
-        public Builder setCustomHeight() {
-            this.instance.isCustomHeight = true;
-            return this;
-        }
-
-        public Builder setDyDescent(double dyDescent) {
-            this.instance.dyDescent = dyDescent;
-            return this;
-        }
-
-        public Row build() {
-            return instance;
-        }
+        return this;
     }
 
-    private final int rowIndex;
-
-    private Range span = NO_SPAN;
-    private double height = DEFAULT_HEIGHT;
-    private boolean isThickBot = false;
-    private boolean isCustomHeight = false;
-    private double dyDescent = NO_DY_DESCENT;
-
-    public static Row atIndex(int rowIndex) {
-        return new Row(rowIndex);
+    public void close() {
+        this.node.close();
+        this.isClosed = true;
     }
 
-    public static Builder at(int rowIndex) {
-        return new Builder(rowIndex);
-    }
-
-    private Row(int rowIndex) {
-        this.rowIndex = rowIndex;
-    }
-
-    public int getRowIndex() {
-        return rowIndex;
-    }
-
-    public Range getSpan() {
-        return span;
-    }
-
-    public double getHeight() {
-        return height;
-    }
-
-    public boolean isThickBot() {
-        return isThickBot;
-    }
-
-    public boolean isCustomHeight() {
-        return isCustomHeight;
-    }
-
-    public double getDyDescent() {
-        return dyDescent;
+    public boolean isClosed() {
+        return this.isClosed;
     }
 }
